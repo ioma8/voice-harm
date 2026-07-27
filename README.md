@@ -6,13 +6,13 @@ Real-time microphone spectral analyzer for **aliquot (overtone) singing** traini
 
 ## Features
 
-- **FFT‑based spectrogram** — 16384‑point Hann‑windowed real FFT, 2.7 Hz/bin resolution
-- **1600 log‑spaced frequency bins** (40 Hz – 4 kHz — vocal fundamentals + harmonics)
-- **Scrolling waterfall** (800 rows, newest at bottom, ~13 s history)
-- **Professional dBFS colormap** — black → navy → purple → red → orange → yellow → white
-- **Cursor readout** — hover anywhere for frequency (Hz/kHz), dB level, and time offset
+- **FFT‑based spectrogram** — 16384‑point Hann‑windowed real FFT, 2.7 Hz/bin resolution at 44.1 kHz
+- **2400 log‑spaced frequency bins** (40 Hz – 4 kHz — vocal fundamentals + harmonics)
+- **Fixed-hop scrolling waterfall** (800 columns, newest at right; duration follows the active sample rate)
+- **Calibrated dBFS colormap** — black → navy → purple → red → orange → yellow → white
+- **Cursor readout** — hover anywhere for frequency (Hz/kHz), dBFS level, and time offset
 - **F0 detection** — estimated fundamental shown top‑left
-- **dBFS colour bar** on the right edge
+- **Stereo/multichannel-safe capture** — channels are downmixed before analysis
 
 ## Dependencies
 
@@ -22,6 +22,7 @@ Real-time microphone spectral analyzer for **aliquot (overtone) singing** traini
 | `realfft` / `rustfft` | Hann‑windowed real FFT |
 | `eframe` / `egui` | Native GUI window |
 | `parking_lot` | Fast mutex |
+| `rtrb` | Lock-free single-producer/single-consumer audio handoff |
 
 ## Build & Run
 
@@ -29,10 +30,10 @@ Real-time microphone spectral analyzer for **aliquot (overtone) singing** traini
 cargo run
 ```
 
-A window opens. Sing into your microphone — the spectrogram scrolls upward showing your vocal harmonics.
+A window opens. Sing into your microphone — the spectrogram scrolls left-to-right showing your vocal harmonics.
 
 ## Controls
 
-- **Mouse over the graph** — shows frequency, dB, and time offset at cursor
-- **F0** (top‑left) — detected fundamental frequency (60–300 Hz peak)
-- **Colour bar** (right) — 0 to −60 dB reference
+- **Mouse over the graph** — shows frequency, dBFS, and time offset at cursor
+- **F0** (top-left) — harmonic-scoring estimate for 60–300 Hz fundamentals
+- **Drone** — play the detected F0; the volume slider adjusts its level
