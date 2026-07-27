@@ -207,6 +207,7 @@ impl VoiceHarmApp {
 
 impl eframe::App for VoiceHarmApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.ctx().set_visuals(egui::Visuals::dark());
         // ── audio processing (same as before) ──
         let sample = { let b = self.audio_buf.lock(); (b.len()>=FFT_SIZE).then(|| b[b.len()-FFT_SIZE..].to_vec()) };
         if let Some(s) = sample {
@@ -220,7 +221,9 @@ impl eframe::App for VoiceHarmApp {
         if let Some(f) = f0 { self.drone_state.lock().frequency = f; }
 
         // ── top panel: controls ──
-        egui::containers::Panel::top("top").show(ui, |ui| {
+        egui::containers::Panel::top("top")
+            .frame(egui::Frame::default().fill(egui::Color32::from_rgb(15, 15, 25)))
+            .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
 
@@ -258,6 +261,7 @@ impl eframe::App for VoiceHarmApp {
         egui::containers::Panel::right("profile")
             .resizable(false)
             .default_size(72.0)
+            .frame(egui::Frame::default().fill(egui::Color32::from_rgb(15, 15, 25)))
             .show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.label(egui::RichText::new("H").size(11.0).color(egui::Color32::DARK_GRAY));
@@ -451,5 +455,7 @@ fn main() -> Result<(), eframe::Error> {
 
     eframe::run_native("Voice Harmonics Analyzer",
         eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_inner_size([1800.,860.]), ..Default::default() },
-        Box::new(move |_| Ok(Box::new(VoiceHarmApp::new(sr, audio, drone)))))
+        Box::new(move |cc| {
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            Ok(Box::new(VoiceHarmApp::new(sr, audio, drone)))}))
 }
