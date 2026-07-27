@@ -119,6 +119,18 @@ fn freq_to_y(f: f32, r: &egui::Rect) -> f32 {
     r.top() + (1.-n.clamp(0.,1.)) * r.height()
 }
 
+fn freq_to_note(f: f32) -> (String, i32, f32) {
+    if f <= 0.0 { return ("--".into(), 0, 0.0); }
+    let semis = 12.0 * (f / 440.0).log2();
+    let midi = 69.0_f32 + semis;
+    let rnd = (midi + 0.5).floor() as i32;
+    let notes = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+    let ni = ((rnd % 12) + 12) % 12;
+    let oct = (rnd / 12) - 1;
+    let cents = (midi - rnd as f32) * 100.0;
+    (notes[ni as usize].to_string(), oct, cents)
+}
+
 fn find_peaks(m: &[f32]) -> Vec<(usize,f32)> {
     let mut v = Vec::new();
     for i in 1..m.len().saturating_sub(1) { let x=m[i]; if x>m[i-1]&&x>=m[i+1]&&x>1e-6 { v.push((i,x)); }}
@@ -291,8 +303,8 @@ impl eframe::App for VoiceHarmApp {
             let canvas = ui.max_rect();
             painter.rect_filled(canvas, 0.0, egui::Color32::BLACK);
 
-            // split canvas: freq labels | spectrogram | colour bar
-            let label_w = 44.0;
+            // ── frequency + note labels (left axis) ──
+            let label_w = 54.0;
             let cbar_w = 16.0;
             let gap = 4.0;
             let spec_rect = egui::Rect::from_min_size(
@@ -311,6 +323,23 @@ impl eframe::App for VoiceHarmApp {
             tex.set(img, egui::TextureOptions::NEAREST);
             painter.image(tex.id(), spec_rect,
                 egui::Rect::from_min_max(egui::pos2(0.,0.), egui::pos2(1.,1.)), egui::Color32::WHITE);
+
+            // ── note octave grid lines ──
+            for oct in 2..=7 {
+                let cf = 16.3516 * 2.0_f32.powi(oct);
+                if cf < FREQ_MIN || cf > FREQ_MAX { continue; }
+                let y = freq_to_y(cf, &spec_rect);
+                painter.text(
+                    egui::pos2(canvas.left() + 2.0, y),
+                    egui::Align2::LEFT_CENTER, format!("C{}", oct),
+                    egui::FontId::proportional(10.0),
+                    egui::Color32::from_rgba_premultiplied(180, 160, 120, 120),
+                );
+                painter.line_segment(
+                    [egui::pos2(spec_rect.left(), y), egui::pos2(spec_rect.right(), y)],
+                    egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(160, 140, 100, 25)),
+                );
+            }
 
             // ── freq labels + grid ──
             let lf: [f32;8] = [50.,100.,200.,500.,1000.,2000.,3000.,4000.];
@@ -367,8 +396,9 @@ impl eframe::App for VoiceHarmApp {
                     painter.line_segment([egui::pos2(spec_rect.left(),mp.y),egui::pos2(spec_rect.right(),mp.y)],
                         egui::Stroke::new(1.,cc));
 
+                    let (n, oct, _c) = freq_to_note(freq);
                     let fs = if freq>=1000.{format!("{:.1}kHz",freq/1000.)}else{format!("{:.1}Hz",freq)};
-                    let info = format!("{fs}\n{db:.1}dB\n-{t_sec:.1}s");
+                    let info = format!("{n}{oct} ({fs})\n{db:.1}dB\n-{t_sec:.1}s");
                     let font = egui::FontId::monospace(13.);
                     let g = painter.layout_no_wrap(info,font,egui::Color32::WHITE);
                     let pad = 5.; let sz = egui::vec2(g.size().x+pad*2.,g.size().y+pad*2.);
