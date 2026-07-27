@@ -1,0 +1,11 @@
+pub(crate) const FFT_SIZE: usize = 16_384;
+pub(crate) const NUM_BINS: usize = 2_400;
+pub(crate) const SPEC_ROWS: usize = 800;
+pub(crate) const FFT_HOP_SIZE: usize = 1_024;
+pub(crate) const AUDIO_RING_SAMPLES: usize = 131_072;
+pub(crate) const WAVEFORM_SAMPLES: usize = 8_192;
+pub(crate) const MAX_AUDIO_SAMPLES_PER_FRAME: usize = 16_384;
+pub(crate) const MAX_AUDIO_BACKLOG: usize = AUDIO_RING_SAMPLES / 2;
+pub(crate) const FREQ_MIN: f32 = 40.0;
+pub(crate) const FREQ_MAX: f32 = 4_000.0;
+pub(crate) const MAX_HARMONIC: u32 = 16;

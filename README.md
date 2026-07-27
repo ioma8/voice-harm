@@ -37,3 +37,18 @@ A window opens. Sing into your microphone — the spectrogram scrolls left-to-ri
 - **Mouse over the graph** — shows frequency, dBFS, and time offset at cursor
 - **F0** (top-left) — harmonic-scoring estimate for 60–300 Hz fundamentals
 - **Drone** — play the detected F0; the volume slider adjusts its level
+
+## Code Layout
+
+The implementation is split into focused modules, each kept below 200 lines:
+
+| Module | Responsibility |
+|---|---|
+| `analysis.rs` | FFT setup, magnitude calibration, F0 and harmonic detection |
+| `audio.rs` | CPAL input capture, format conversion, and ring-buffer handoff |
+| `drone.rs` | Lock-free drone state and CPAL output generation |
+| `waterfall.rs` | Spectrogram history, color mapping, and texture uploads |
+| `drawing.rs` | Reusable piano and waveform drawing primitives |
+| `app.rs` | Application state and bounded audio analysis processing |
+| `ui.rs`, `ui_canvas.rs`, `ui_overlay.rs` | Controls, layout, plot, and cursor overlays |
+| `config.rs` | Shared analysis and display constants |
