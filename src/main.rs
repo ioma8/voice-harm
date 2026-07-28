@@ -14,11 +14,29 @@ use crate::audio::run_audio;
 use crate::config::AUDIO_RING_SAMPLES;
 use crate::drone::{DroneState, run_drone};
 use cpal::traits::{DeviceTrait, HostTrait};
+use glium::Surface;
+use glutin::{
+    config::ConfigTemplateBuilder,
+    context::ContextAttributesBuilder,
+    display::GetGlDisplay,
+    prelude::*,
+    surface::{SurfaceAttributesBuilder, WindowSurface},
+};
+use winit::raw_window_handle::HasWindowHandle;
+use imgui_winit_support::winit::{
+    dpi::LogicalSize,
+    event::Event,
+    event_loop::EventLoop,
+    window::{Window, WindowAttributes},
+};
 use rtrb::RingBuffer;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
-fn main() -> Result<(), eframe::Error> {
+fn main() {
+    // --- audio setup (unchanged) ---
     let sr = cpal::default_host()
         .default_input_device()
         .and_then(|d| d.default_input_config().ok())
@@ -47,23 +65,134 @@ fn main() -> Result<(), eframe::Error> {
         }
     });
 
-    eframe::run_native(
-        "Voice Harmonics Analyzer",
-        eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default().with_inner_size([1800., 860.]),
-            ..Default::default()
-        },
-        Box::new(move |cc| {
-            cc.egui_ctx.set_visuals(egui::Visuals::dark());
-            Ok(Box::new(VoiceHarmApp::new(
-                sr,
-                audio_consumer,
-                audio_overflowed,
-                audio_failed,
-                drone,
-            )))
-        }),
-    )
+    // --- app state ---
+    let mut app = VoiceHarmApp::new(sr, audio_consumer, audio_overflowed, audio_failed, drone);
+
+    // --- window + OpenGL ---
+    let (event_loop, window, display) = create_window();
+    let (mut winit_platform, mut imgui_context) = imgui_init(&window);
+    let mut renderer = imgui_glium_renderer::Renderer::new(&mut imgui_context, &display)
+        .expect("Failed to initialize renderer");
+
+    let mut last_frame = Instant::now();
+
+    #[allow(deprecated)]
+    let _ = event_loop.run(move |event, window_target| {
+        winit_platform.handle_event(imgui_context.io_mut(), &window, &event);
+
+        match event {
+            Event::NewEvents(_) => {
+                let now = Instant::now();
+                imgui_context.io_mut().update_delta_time(now - last_frame);
+                last_frame = now;
+            }
+            Event::AboutToWait => {
+                winit_platform
+                    .prepare_frame(imgui_context.io_mut(), &window)
+                    .expect("Failed to prepare frame");
+                window.request_redraw();
+            }
+            Event::WindowEvent {
+                event: winit::event::WindowEvent::RedrawRequested,
+                ..
+            } => {
+                // Process audio and upload waterfall data BEFORE the imgui frame
+                let f0 = app.update_audio();
+                app.waterfall.upload(&display, &mut renderer);
+
+                let ui = imgui_context.frame();
+
+                // Build UI (no audio processing inside)
+                crate::ui::build_ui(&mut app, &ui, f0);
+
+                // Render
+                let mut target = display.draw();
+                target.clear_color_srgb(0.047, 0.071, 0.098, 1.0);
+                winit_platform.prepare_render(&ui, &window);
+                let draw_data = imgui_context.render();
+                renderer
+                    .render(&mut target, draw_data)
+                    .expect("Rendering failed");
+                target.finish().expect("Failed to swap buffers");
+            }
+            Event::WindowEvent {
+                event: winit::event::WindowEvent::Resized(new_size),
+                ..
+            } => {
+                if new_size.width > 0 && new_size.height > 0 {
+                    display.resize((new_size.width, new_size.height));
+                }
+            }
+            Event::WindowEvent {
+                event: winit::event::WindowEvent::CloseRequested,
+                ..
+            } => window_target.exit(),
+            _ => {}
+        }
+    });
+}
+
+fn create_window() -> (EventLoop<()>, Window, glium::Display<WindowSurface>) {
+    let event_loop = EventLoop::new().expect("Failed to create EventLoop");
+
+    let window_attributes = WindowAttributes::default()
+        .with_title("Voice Harmonics Analyzer")
+        .with_inner_size(LogicalSize::new(1800.0, 860.0));
+
+    let (window, cfg) = glutin_winit::DisplayBuilder::new()
+        .with_window_attributes(Some(window_attributes.clone()))
+        .build(&event_loop, ConfigTemplateBuilder::new(), |mut configs| {
+            configs.next().unwrap()
+        })
+        .expect("Failed to create OpenGL window");
+    let window = window.unwrap();
+
+    let context_attribs =
+        ContextAttributesBuilder::new().build(Some(window.window_handle().unwrap().as_raw()));
+    let context = unsafe {
+        cfg.display()
+            .create_context(&cfg, &context_attribs)
+            .expect("Failed to create OpenGL context")
+    };
+
+    let size = window.inner_size();
+    let surface_attribs = SurfaceAttributesBuilder::<WindowSurface>::new().build(
+        window.window_handle().unwrap().as_raw(),
+        NonZeroU32::new(size.width).unwrap(),
+        NonZeroU32::new(size.height).unwrap(),
+    );
+    let surface = unsafe {
+        cfg.display()
+            .create_window_surface(&cfg, &surface_attribs)
+            .expect("Failed to create OpenGL surface")
+    };
+
+    let context = context
+        .make_current(&surface)
+        .expect("Failed to make OpenGL context current");
+
+    let display = glium::Display::from_context_surface(context, surface)
+        .expect("Failed to create glium Display");
+
+    (event_loop, window, display)
+}
+
+fn imgui_init(window: &Window) -> (imgui_winit_support::WinitPlatform, imgui::Context) {
+    let mut imgui_context = imgui::Context::create();
+    imgui_context.set_ini_filename(None);
+
+    let mut winit_platform = imgui_winit_support::WinitPlatform::new(&mut imgui_context);
+    let dpi_mode = imgui_winit_support::HiDpiMode::Default;
+    winit_platform.attach_window(imgui_context.io_mut(), window, dpi_mode);
+
+    imgui_context
+        .fonts()
+        .add_font(&[imgui::FontSource::DefaultFontData { config: None }]);
+
+    // Dark style
+    imgui_context.style_mut().use_dark_colors();
+
+    (winit_platform, imgui_context)
 }
 
 #[cfg(test)]

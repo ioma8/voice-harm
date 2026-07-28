@@ -1,4 +1,5 @@
 use crate::config::*;
+use imgui::ImColor32;
 use parking_lot::Mutex;
 use realfft::{RealFftPlanner, RealToComplex, num_complex::Complex};
 use std::f32::consts::PI;
@@ -78,10 +79,14 @@ impl FftSetup {
 // colour ramp
 // ---------------------------------------------------------------------------
 
-pub(crate) fn spec_color(t: f32) -> egui::Color32 {
+fn u8f(v: u8) -> f32 {
+    v as f32 / 255.0
+}
+
+pub(crate) fn spec_color(t: f32) -> ImColor32 {
     let t = t.clamp(0.0, 1.0);
     if t < 0.003 {
-        return egui::Color32::BLACK;
+        return ImColor32::BLACK;
     }
     let s: [(f32, (u8, u8, u8)); 7] = [
         (0.00, (0, 0, 0)),
@@ -97,14 +102,15 @@ pub(crate) fn spec_color(t: f32) -> egui::Color32 {
         let (t1, c1) = s[i + 1];
         if t >= t0 && t <= t1 {
             let u = ((t - t0) / (t1 - t0)).clamp(0., 1.);
-            return egui::Color32::from_rgb(
-                (f32::from(c0.0) + f32::from(i16::from(c1.0) - i16::from(c0.0)) * u) as u8,
-                (f32::from(c0.1) + f32::from(i16::from(c1.1) - i16::from(c0.1)) * u) as u8,
-                (f32::from(c0.2) + f32::from(i16::from(c1.2) - i16::from(c0.2)) * u) as u8,
-            );
+            return ImColor32::from([
+                u8f((f32::from(c0.0) + f32::from(i16::from(c1.0) - i16::from(c0.0)) * u) as u8),
+                u8f((f32::from(c0.1) + f32::from(i16::from(c1.1) - i16::from(c0.1)) * u) as u8),
+                u8f((f32::from(c0.2) + f32::from(i16::from(c1.2) - i16::from(c0.2)) * u) as u8),
+                1.0,
+            ]);
         }
     }
-    egui::Color32::WHITE
+    ImColor32::WHITE
 }
 
 // ---------------------------------------------------------------------------
@@ -143,9 +149,10 @@ pub(crate) fn estimate_f0(mags: &[f32], freqs: &[f32]) -> Option<f32> {
     Some(f0)
 }
 
-pub(crate) fn freq_to_y(f: f32, r: &egui::Rect) -> f32 {
+/// rect = [x1, y1, x2, y2] (y1=top, y2=bottom)
+pub(crate) fn freq_to_y(f: f32, rect: &[f32; 4]) -> f32 {
     let n = (f.ln() - FREQ_MIN.ln()) / (FREQ_MAX.ln() - FREQ_MIN.ln());
-    r.top() + (1. - n.clamp(0., 1.)) * r.height()
+    rect[1] + (1. - n.clamp(0., 1.)) * (rect[3] - rect[1])
 }
 
 pub(crate) fn freq_to_note(f: f32) -> (String, i32, f32) {

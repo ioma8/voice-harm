@@ -24,7 +24,7 @@ pub(crate) struct VoiceHarmApp {
     pub(crate) current_mags: Vec<f32>,
     pub(crate) current_f0: Option<f32>,
     pub(crate) waveform_render: Vec<f32>,
-    pub(crate) waveform_points: Vec<egui::Pos2>,
+    pub(crate) waveform_points: Vec<[f32; 2]>,
     pub(crate) drone_state: Arc<DroneState>,
     pub(crate) drone_on: bool,
     pub(crate) drone_vol: f32,

@@ -2,112 +2,120 @@ use crate::analysis::freq_to_y;
 use crate::app::VoiceHarmApp;
 use crate::config::*;
 use crate::ui_overlay::{draw_cursor, draw_harmonics, draw_waveform_area};
-use crate::waterfall::Waterfall;
+use imgui::{DrawListMut, Ui};
 
-pub(crate) fn render_canvas(app: &mut VoiceHarmApp, ui: &mut egui::Ui, f0: Option<f32>) {
-    egui::CentralPanel::default().show(ui, |ui| {
-        let painter = ui.painter();
-        let canvas = ui.max_rect();
-        painter.rect_filled(canvas, 0.0, egui::Color32::from_rgb(7, 11, 16));
-        let plot_rect = egui::Rect::from_min_max(
-            canvas.min,
-            egui::pos2(canvas.right(), canvas.bottom() - 100.0),
-        );
-        let spec_rect = egui::Rect::from_min_size(
-            egui::pos2(canvas.left() + 54.0, plot_rect.top()),
-            egui::vec2((plot_rect.width() - 54.0).max(64.0), plot_rect.height()),
-        );
-        draw_waterfall(&mut app.waterfall, painter, ui.ctx(), spec_rect);
-        draw_axes(app, painter, canvas, plot_rect, spec_rect);
-        draw_waveform_area(app, painter, canvas, plot_rect, f0);
-        draw_harmonics(app, painter, spec_rect, f0);
-        draw_cursor(app, ui, painter, canvas, spec_rect);
-    });
+/// `canvas` = [x1, y1, x2, y2] — the region right of piano, below header
+pub(crate) fn render_canvas(
+    app: &mut VoiceHarmApp,
+    ui: &Ui,
+    draw: &DrawListMut,
+    canvas: [f32; 4],
+    f0: Option<f32>,
+) {
+    // Canvas background
+    draw.add_rect(
+        [canvas[0], canvas[1]],
+        [canvas[2], canvas[3]],
+        [7.0 / 255., 11.0 / 255., 16.0 / 255., 1.0],
+    )
+    .filled(true)
+    .build();
+
+    let plot_rect = [canvas[0], canvas[1], canvas[2], canvas[3] - 100.0];
+    let spec_rect = [
+        canvas[0] + 54.0,
+        plot_rect[1],
+        canvas[2],
+        plot_rect[3],
+    ];
+
+    draw_waterfall(app, draw, spec_rect);
+    draw_axes(app, draw, canvas, spec_rect);
+    draw_waveform_area(app, draw, canvas, plot_rect, f0);
+    draw_harmonics(app, draw, spec_rect, f0);
+    draw_cursor(app, ui, draw, canvas, spec_rect);
 }
 
-fn draw_waterfall(
-    waterfall: &mut Waterfall,
-    painter: &egui::Painter,
-    ctx: &egui::Context,
-    rect: egui::Rect,
-) {
-    let texture = waterfall.upload(ctx);
-    let split = if waterfall.filled { waterfall.pos } else { 0 };
-    if !waterfall.filled {
-        let fraction = waterfall.pos as f32 / SPEC_ROWS as f32;
+fn draw_waterfall(app: &mut VoiceHarmApp, draw: &DrawListMut, rect: [f32; 4]) {
+    let Some(tid) = app.waterfall.texture_id else {
+        return;
+    };
+    let wf = &app.waterfall;
+
+    // No UV flip needed: glium row 0 = bottom = high freq, and imgui's
+    // default mapping (uv_min → display top-left, OpenGL (0,0) = bottom-left)
+    // naturally places high freq at the display top.
+
+    if !wf.filled {
+        let fraction = wf.pos as f32 / SPEC_ROWS as f32;
         if fraction > 0.0 {
-            let data_rect = egui::Rect::from_min_max(
-                egui::pos2(rect.right() - rect.width() * fraction, rect.top()),
-                rect.max,
-            );
-            painter.image(
-                texture,
-                data_rect,
-                egui::Rect::from_min_max(egui::pos2(0., 0.), egui::pos2(fraction, 1.)),
-                egui::Color32::WHITE,
-            );
+            // Data at texture columns 0..pos, newest column = pos-1.
+            // Display on right side of widget (newest=rightmost).
+            let data_left = rect[2] - (rect[2] - rect[0]) * fraction;
+            draw.add_image(tid, [data_left, rect[1]], [rect[2], rect[3]])
+                .uv_min([0.0, 0.0])
+                .uv_max([fraction, 1.0])
+                .build();
         }
-    } else if split == 0 {
-        painter.image(texture, rect, egui::Rect::EVERYTHING, egui::Color32::WHITE);
+    } else if wf.pos == 0 {
+        draw.add_image(tid, [rect[0], rect[1]], [rect[2], rect[3]])
+            .uv_min([0.0, 0.0])
+            .uv_max([1.0, 1.0])
+            .build();
     } else {
-        let first_fraction = (SPEC_ROWS - split) as f32 / SPEC_ROWS as f32;
-        let first_rect = egui::Rect::from_min_max(
-            rect.min,
-            egui::pos2(rect.left() + rect.width() * first_fraction, rect.bottom()),
-        );
-        painter.image(
-            texture,
-            first_rect,
-            egui::Rect::from_min_max(egui::pos2(first_fraction, 0.), egui::pos2(1., 1.)),
-            egui::Color32::WHITE,
-        );
-        let second_rect =
-            egui::Rect::from_min_max(egui::pos2(first_rect.right(), rect.top()), rect.max);
-        painter.image(
-            texture,
-            second_rect,
-            egui::Rect::from_min_max(egui::pos2(0., 0.), egui::pos2(first_fraction, 1.)),
-            egui::Color32::WHITE,
-        );
+        // After wrap: columns 0..pos-1 = newer, columns pos..799 = older.
+        // Split point in UV = pos / SPEC_ROWS.
+        // Older data (UV [fraction, 1.0]) → left side of display.
+        // Newer data (UV [0.0, fraction]) → right side of display.
+        let fraction = wf.pos as f32 / SPEC_ROWS as f32;
+        let split_x = rect[2] - (rect[2] - rect[0]) * fraction;
+        draw.add_image(tid, [rect[0], rect[1]], [split_x, rect[3]])
+            .uv_min([fraction, 0.0])
+            .uv_max([1.0, 1.0])
+            .build();
+        draw.add_image(tid, [split_x, rect[1]], [rect[2], rect[3]])
+            .uv_min([0.0, 0.0])
+            .uv_max([fraction, 1.0])
+            .build();
     }
-    painter.rect_stroke(
-        rect,
-        2.0,
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(42, 61, 76)),
-        egui::StrokeKind::Inside,
-    );
+
+    draw.add_rect(
+        [rect[0], rect[1]],
+        [rect[2], rect[3]],
+        [42.0 / 255., 61.0 / 255., 76.0 / 255., 1.0],
+    )
+    .build();
 }
 
 fn draw_axes(
     app: &VoiceHarmApp,
-    painter: &egui::Painter,
-    canvas: egui::Rect,
-    plot: egui::Rect,
-    spec: egui::Rect,
+    draw: &DrawListMut,
+    canvas: [f32; 4],
+    spec: [f32; 4],
 ) {
+    // Octave labels (C2–C7)
     for octave in 2..=7 {
         let frequency = 16.3516 * 2.0_f32.powi(octave);
         if !(FREQ_MIN..=FREQ_MAX).contains(&frequency) {
             continue;
         }
         let y = freq_to_y(frequency, &spec);
-        painter.text(
-            egui::pos2(canvas.left() + 4.0, y),
-            egui::Align2::LEFT_CENTER,
-            format!("C{octave}"),
-            egui::FontId::proportional(10.0),
-            egui::Color32::from_rgba_premultiplied(125, 176, 180, 150),
+        draw.add_text(
+            [canvas[0] + 4., y - 7.],
+            [125.0 / 255., 176.0 / 255., 180.0 / 255., 150.0 / 255.],
+            &format!("C{octave}"),
         );
-        painter.line_segment(
-            [egui::pos2(spec.left(), y), egui::pos2(spec.right(), y)],
-            egui::Stroke::new(
-                1.0,
-                egui::Color32::from_rgba_premultiplied(68, 127, 134, 35),
-            ),
-        );
+        draw.add_line(
+            [spec[0], y],
+            [spec[2], y],
+            [68.0 / 255., 127.0 / 255., 134.0 / 255., 35.0 / 255.],
+        )
+        .build();
     }
+
+    // Frequency labels
     let labels = [50., 100., 200., 500., 1000., 2000., 3000., 4000.];
-    for frequency in labels {
+    for &frequency in &labels {
         if !(FREQ_MIN..=FREQ_MAX).contains(&frequency) {
             continue;
         }
@@ -117,46 +125,39 @@ fn draw_axes(
         } else {
             format!("{frequency}")
         };
-        painter.text(
-            egui::pos2(spec.left() - 5., y),
-            egui::Align2::RIGHT_CENTER,
-            label,
-            egui::FontId::proportional(11.),
-            egui::Color32::from_rgb(149, 165, 178),
+        // right-align: approximate char width ~7px
+        let text_w = label.len() as f32 * 7.;
+        draw.add_text(
+            [spec[0] - 5. - text_w, y - 7.],
+            [149.0 / 255., 165.0 / 255., 178.0 / 255., 1.0],
+            &label,
         );
-        painter.line_segment(
-            [egui::pos2(spec.left(), y), egui::pos2(spec.right(), y)],
-            egui::Stroke::new(
-                1.,
-                egui::Color32::from_rgba_premultiplied(114, 145, 162, 40),
-            ),
-        );
+        draw.add_line(
+            [spec[0], y],
+            [spec[2], y],
+            [114.0 / 255., 145.0 / 255., 162.0 / 255., 40.0 / 255.],
+        )
+        .build();
     }
-    painter.text(
-        egui::pos2(4., plot.top() + 4.),
-        egui::Align2::LEFT_TOP,
-        "Frequency\n(Hz)",
-        egui::FontId::proportional(10.),
-        egui::Color32::from_rgb(128, 151, 166),
-    );
+
+    // Time axis
     for second in 0..=4 {
-        let x = spec.left() + second as f32 / 4. * spec.width();
-        painter.line_segment(
-            [egui::pos2(x, spec.top()), egui::pos2(x, spec.bottom())],
-            egui::Stroke::new(
-                1.,
-                egui::Color32::from_rgba_premultiplied(114, 145, 162, 32),
-            ),
+        let x = spec[0] + second as f32 / 4. * (spec[2] - spec[0]);
+        draw.add_line(
+            [x, spec[1]],
+            [x, spec[3]],
+            [114.0 / 255., 145.0 / 255., 162.0 / 255., 32.0 / 255.],
+        )
+        .build();
+        let label = format!(
+            "-{:.1}s",
+            (4 - second) as f32 * app.visible_history_seconds() / 4.0
         );
-        painter.text(
-            egui::pos2(x, spec.bottom() + 4.),
-            egui::Align2::CENTER_TOP,
-            format!(
-                "-{:.1}s",
-                (4 - second) as f32 * app.visible_history_seconds() / 4.0
-            ),
-            egui::FontId::proportional(9.),
-            egui::Color32::from_rgb(128, 151, 166),
+        let text_w = label.len() as f32 * 5.;
+        draw.add_text(
+            [x - text_w * 0.5, spec[3] + 4.],
+            [128.0 / 255., 151.0 / 255., 166.0 / 255., 1.0],
+            &label,
         );
     }
 }
