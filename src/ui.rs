@@ -4,13 +4,12 @@ use crate::ui_canvas::render_canvas;
 use imgui::*;
 use std::sync::atomic::Ordering;
 
-/// Called each frame inside `imgui_context.frame()`.
-/// Builds the entire UI: header bar, piano sidebar, and spectrogram canvas.
 pub(crate) fn build_ui(app: &mut VoiceHarmApp, ui: &Ui, f0: Option<f32>) {
-    // --- style tweaks for dark look ---
     let _pad = ui.push_style_var(StyleVar::WindowPadding([0.0, 0.0]));
     let _bg = ui.push_style_color(StyleColor::WindowBg, [0.047, 0.071, 0.098, 1.0]);
     let _border = ui.push_style_color(StyleColor::Border, [0.169, 0.243, 0.302, 1.0]);
+    let _slider_bg =
+        ui.push_style_color(StyleColor::FrameBg, [0.106, 0.153, 0.196, 1.0]);
 
     let viewport = ui.io().display_size;
     ui.window("##main")
@@ -31,7 +30,6 @@ pub(crate) fn build_ui(app: &mut VoiceHarmApp, ui: &Ui, f0: Option<f32>) {
             let header_rect = [cx1[0], cx1[1], cx1[0] + content[0], cx1[1] + header_h];
             let draw = ui.get_window_draw_list();
 
-            // Header background
             draw.add_rect(
                 [header_rect[0], header_rect[1]],
                 [header_rect[2], header_rect[3]],
@@ -39,7 +37,6 @@ pub(crate) fn build_ui(app: &mut VoiceHarmApp, ui: &Ui, f0: Option<f32>) {
             )
             .filled(true)
             .build();
-            // Header bottom line
             draw.add_line(
                 [header_rect[0], header_rect[3]],
                 [header_rect[2], header_rect[3]],
@@ -47,17 +44,18 @@ pub(crate) fn build_ui(app: &mut VoiceHarmApp, ui: &Ui, f0: Option<f32>) {
             )
             .build();
 
-            // Header widgets
-            ui.set_cursor_pos([header_rect[0] + 12.0, header_rect[1] + 8.0]);
-
+            ui.set_cursor_pos([header_rect[0] + 12.0, header_rect[1] + 6.0]);
+            let _hf = ui.push_font(app.font_large);
             ui.text_colored([0.92, 0.95, 0.96, 1.0], "Voice Harmonics");
+            drop(_hf);
 
             ui.same_line();
+            ui.set_cursor_pos([ui.cursor_screen_pos()[0], header_rect[1] + 8.0]);
             let live = !app.audio_failed.load(Ordering::Relaxed);
             if live {
-                ui.text_colored([0.188, 0.804, 0.722, 1.0], "  ● LIVE");
+                ui.text_colored([0.188, 0.804, 0.722, 1.0], "● LIVE");
             } else {
-                ui.text_colored([0.878, 0.455, 0.361, 1.0], "  ● AUDIO ERROR");
+                ui.text_colored([0.878, 0.455, 0.361, 1.0], "● AUDIO ERROR");
             }
 
             ui.same_line();
@@ -74,11 +72,16 @@ pub(crate) fn build_ui(app: &mut VoiceHarmApp, ui: &Ui, f0: Option<f32>) {
             ui.separator();
             ui.same_line();
 
-            // Drone toggle button
-            let _drone = if app.drone_on {
-                let s1 = ui.push_style_color(StyleColor::Button, [0.086, 0.506, 0.435, 1.0]);
-                let s2 = ui.push_style_color(StyleColor::ButtonHovered, [0.11, 0.62, 0.53, 1.0]);
-                let s3 = ui.push_style_color(StyleColor::ButtonActive, [0.07, 0.42, 0.36, 1.0]);
+            // Drone toggle
+            let drone_colors = if app.drone_on {
+                let s1 =
+                    ui.push_style_color(StyleColor::Button, [0.086, 0.506, 0.435, 1.0]);
+                let s2 = ui.push_style_color(
+                    StyleColor::ButtonHovered,
+                    [0.11, 0.62, 0.53, 1.0],
+                );
+                let s3 =
+                    ui.push_style_color(StyleColor::ButtonActive, [0.07, 0.42, 0.36, 1.0]);
                 Some((s1, s2, s3))
             } else {
                 None
@@ -89,7 +92,7 @@ pub(crate) fn build_ui(app: &mut VoiceHarmApp, ui: &Ui, f0: Option<f32>) {
                     .enabled
                     .store(app.drone_on, Ordering::Relaxed);
             }
-            drop(_drone);
+            drop(drone_colors);
 
             ui.same_line();
             ui.set_next_item_width(72.0);
@@ -101,13 +104,18 @@ pub(crate) fn build_ui(app: &mut VoiceHarmApp, ui: &Ui, f0: Option<f32>) {
                     .store(vol.to_bits(), Ordering::Relaxed);
             }
 
+            ui.same_line();
+            ui.text_colored(
+                [0.51, 0.51, 0.51, 1.0],
+                format!("{:3.0}%", app.drone_vol * 100.),
+            );
+
             // --- piano sidebar ---
             let piano_w = 104.0;
             let sidebar_top = header_rect[3];
             let sidebar_bot = cx1[1] + content[1];
             let piano_rect = [cx1[0], sidebar_top, cx1[0] + piano_w, sidebar_bot];
 
-            // Piano background
             draw.add_rect(
                 [piano_rect[0], piano_rect[1]],
                 [piano_rect[2], piano_rect[3]],
@@ -115,7 +123,6 @@ pub(crate) fn build_ui(app: &mut VoiceHarmApp, ui: &Ui, f0: Option<f32>) {
             )
             .filled(true)
             .build();
-            // Piano right border
             draw.add_line(
                 [piano_rect[2], piano_rect[1]],
                 [piano_rect[2], piano_rect[3]],

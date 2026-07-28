@@ -29,11 +29,31 @@ pub(crate) fn render_canvas(
         plot_rect[3],
     ];
 
+    // Dim octave grid lines drawn *behind* the waterfall
+    draw_grid(app, draw, canvas, spec_rect);
+
     draw_waterfall(app, draw, spec_rect);
-    draw_axes(app, draw, canvas, spec_rect);
-    draw_waveform_area(app, draw, canvas, plot_rect, f0);
-    draw_harmonics(app, draw, spec_rect, f0);
+    draw_axes(app, ui, draw, canvas, spec_rect);
+    draw_waveform_area(app, ui, draw, canvas, plot_rect, f0);
+    draw_harmonics(app, ui, draw, spec_rect, f0);
     draw_cursor(app, ui, draw, canvas, spec_rect);
+}
+
+/// Dim horizontal lines at octave boundaries behind the spectrogram.
+fn draw_grid(_app: &VoiceHarmApp, draw: &DrawListMut, canvas: [f32; 4], spec: [f32; 4]) {
+    for octave in 2..=7 {
+        let frequency = 16.3516 * 2.0_f32.powi(octave);
+        if !(FREQ_MIN..=FREQ_MAX).contains(&frequency) {
+            continue;
+        }
+        let y = freq_to_y(frequency, &spec);
+        draw.add_line(
+            [canvas[0] + 54., y],
+            [spec[2], y],
+            [68.0 / 255., 127.0 / 255., 134.0 / 255., 12.0 / 255.],
+        )
+        .build();
+    }
 }
 
 fn draw_waterfall(app: &mut VoiceHarmApp, draw: &DrawListMut, rect: [f32; 4]) {
@@ -42,15 +62,9 @@ fn draw_waterfall(app: &mut VoiceHarmApp, draw: &DrawListMut, rect: [f32; 4]) {
     };
     let wf = &app.waterfall;
 
-    // No UV flip needed: glium row 0 = bottom = high freq, and imgui's
-    // default mapping (uv_min → display top-left, OpenGL (0,0) = bottom-left)
-    // naturally places high freq at the display top.
-
     if !wf.filled {
         let fraction = wf.pos as f32 / SPEC_ROWS as f32;
         if fraction > 0.0 {
-            // Data at texture columns 0..pos, newest column = pos-1.
-            // Display on right side of widget (newest=rightmost).
             let data_left = rect[2] - (rect[2] - rect[0]) * fraction;
             draw.add_image(tid, [data_left, rect[1]], [rect[2], rect[3]])
                 .uv_min([0.0, 0.0])
@@ -63,10 +77,6 @@ fn draw_waterfall(app: &mut VoiceHarmApp, draw: &DrawListMut, rect: [f32; 4]) {
             .uv_max([1.0, 1.0])
             .build();
     } else {
-        // After wrap: columns 0..pos-1 = newer, columns pos..799 = older.
-        // Split point in UV = pos / SPEC_ROWS.
-        // Older data (UV [fraction, 1.0]) → left side of display.
-        // Newer data (UV [0.0, fraction]) → right side of display.
         let fraction = wf.pos as f32 / SPEC_ROWS as f32;
         let split_x = rect[2] - (rect[2] - rect[0]) * fraction;
         draw.add_image(tid, [rect[0], rect[1]], [split_x, rect[3]])
@@ -79,16 +89,20 @@ fn draw_waterfall(app: &mut VoiceHarmApp, draw: &DrawListMut, rect: [f32; 4]) {
             .build();
     }
 
+    // 2 px border: outer + inner offset rects
+    let border_col = [42.0 / 255., 61.0 / 255., 76.0 / 255., 1.0];
     draw.add_rect(
-        [rect[0], rect[1]],
-        [rect[2], rect[3]],
-        [42.0 / 255., 61.0 / 255., 76.0 / 255., 1.0],
+        [rect[0] - 1., rect[1] - 1.],
+        [rect[2] + 1., rect[3] + 1.],
+        border_col,
     )
     .build();
+    draw.add_rect([rect[0], rect[1]], [rect[2], rect[3]], border_col).build();
 }
 
 fn draw_axes(
     app: &VoiceHarmApp,
+    ui: &Ui,
     draw: &DrawListMut,
     canvas: [f32; 4],
     spec: [f32; 4],
@@ -108,12 +122,12 @@ fn draw_axes(
         draw.add_line(
             [spec[0], y],
             [spec[2], y],
-            [68.0 / 255., 127.0 / 255., 134.0 / 255., 35.0 / 255.],
+            [68.0 / 255., 127.0 / 255., 134.0 / 255., 55.0 / 255.],
         )
         .build();
     }
 
-    // Frequency labels
+    // Frequency labels — use calc_text_size for accurate right-alignment
     let labels = [50., 100., 200., 500., 1000., 2000., 3000., 4000.];
     for &frequency in &labels {
         if !(FREQ_MIN..=FREQ_MAX).contains(&frequency) {
@@ -125,8 +139,7 @@ fn draw_axes(
         } else {
             format!("{frequency}")
         };
-        // right-align: approximate char width ~7px
-        let text_w = label.len() as f32 * 7.;
+        let text_w = ui.calc_text_size(&label)[0];
         draw.add_text(
             [spec[0] - 5. - text_w, y - 7.],
             [149.0 / 255., 165.0 / 255., 178.0 / 255., 1.0],
@@ -153,7 +166,7 @@ fn draw_axes(
             "-{:.1}s",
             (4 - second) as f32 * app.visible_history_seconds() / 4.0
         );
-        let text_w = label.len() as f32 * 5.;
+        let text_w = ui.calc_text_size(&label)[0];
         draw.add_text(
             [x - text_w * 0.5, spec[3] + 4.],
             [128.0 / 255., 151.0 / 255., 166.0 / 255., 1.0],

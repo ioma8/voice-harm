@@ -65,12 +65,12 @@ fn main() {
         }
     });
 
-    // --- app state ---
-    let mut app = VoiceHarmApp::new(sr, audio_consumer, audio_overflowed, audio_failed, drone);
-
     // --- window + OpenGL ---
     let (event_loop, window, display) = create_window();
-    let (mut winit_platform, mut imgui_context) = imgui_init(&window);
+    let (mut winit_platform, mut imgui_context, _font_small, font_large) = imgui_init(&window);
+
+    // --- app state ---
+    let mut app = VoiceHarmApp::new(sr, audio_consumer, audio_overflowed, audio_failed, drone, font_large);
     let mut renderer = imgui_glium_renderer::Renderer::new(&mut imgui_context, &display)
         .expect("Failed to initialize renderer");
 
@@ -177,7 +177,7 @@ fn create_window() -> (EventLoop<()>, Window, glium::Display<WindowSurface>) {
     (event_loop, window, display)
 }
 
-fn imgui_init(window: &Window) -> (imgui_winit_support::WinitPlatform, imgui::Context) {
+fn imgui_init(window: &Window) -> (imgui_winit_support::WinitPlatform, imgui::Context, imgui::FontId, imgui::FontId) {
     let mut imgui_context = imgui::Context::create();
     imgui_context.set_ini_filename(None);
 
@@ -185,14 +185,28 @@ fn imgui_init(window: &Window) -> (imgui_winit_support::WinitPlatform, imgui::Co
     let dpi_mode = imgui_winit_support::HiDpiMode::Default;
     winit_platform.attach_window(imgui_context.io_mut(), window, dpi_mode);
 
-    imgui_context
+    let _font_small = imgui_context
         .fonts()
         .add_font(&[imgui::FontSource::DefaultFontData { config: None }]);
+    let font_large = imgui_context
+        .fonts()
+        .add_font(&[imgui::FontSource::DefaultFontData {
+            config: Some(imgui::FontConfig {
+                size_pixels: 16.0,
+                ..Default::default()
+            }),
+        }]);
 
-    // Dark style
-    imgui_context.style_mut().use_dark_colors();
+    // Dark style + polish
+    let style = imgui_context.style_mut();
+    style.use_dark_colors();
+    style.window_rounding = 4.0;
+    style.frame_rounding = 3.0;
+    style.grab_rounding = 3.0;
+    style.scrollbar_rounding = 3.0;
+    style.frame_border_size = 0.0;
 
-    (winit_platform, imgui_context)
+    (winit_platform, imgui_context, _font_small, font_large)
 }
 
 #[cfg(test)]

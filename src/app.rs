@@ -2,6 +2,7 @@ use crate::analysis::FftSetup;
 use crate::config::*;
 use crate::drone::DroneState;
 use crate::waterfall::Waterfall;
+use imgui::FontId;
 use rtrb::Consumer;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -28,6 +29,7 @@ pub(crate) struct VoiceHarmApp {
     pub(crate) drone_state: Arc<DroneState>,
     pub(crate) drone_on: bool,
     pub(crate) drone_vol: f32,
+    pub(crate) font_large: FontId,
 }
 
 impl VoiceHarmApp {
@@ -37,6 +39,7 @@ impl VoiceHarmApp {
         audio_overflowed: Arc<AtomicBool>,
         audio_failed: Arc<AtomicBool>,
         drone: Arc<DroneState>,
+        font_large: FontId,
     ) -> Self {
         let r = (FREQ_MAX / FREQ_MIN).powf(1. / (NUM_BINS - 1) as f32);
         let fs: Vec<_> = (0..NUM_BINS).map(|i| FREQ_MIN * r.powi(i as i32)).collect();
@@ -61,6 +64,7 @@ impl VoiceHarmApp {
             drone_state: drone,
             drone_on: false,
             drone_vol: 0.3,
+            font_large,
         }
     }
 

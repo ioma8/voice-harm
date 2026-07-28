@@ -6,6 +6,7 @@ use imgui::{DrawListMut, Ui};
 
 pub(crate) fn draw_harmonics(
     app: &VoiceHarmApp,
+    _ui: &Ui,
     draw: &DrawListMut,
     spec: [f32; 4],
     f0: Option<f32>,
@@ -18,7 +19,6 @@ pub(crate) fn draw_harmonics(
             &spec,
         );
         let tag = format!("{harmonic}");
-        // tag background pill
         let tag_left = spec[0] - 16.;
         draw.add_rect(
             [tag_left, y - 7.],
@@ -32,7 +32,6 @@ pub(crate) fn draw_harmonics(
             [190.0 / 255., 238.0 / 255., 227.0 / 255., 1.0],
             &tag,
         );
-        // tick into spec area
         draw.add_line(
             [spec[0], y],
             [spec[0] + 7., y],
@@ -56,7 +55,11 @@ pub(crate) fn draw_cursor(
     };
 
     let pointer = ui.io().mouse_pos;
-    if pointer[0] < spec[0] || pointer[0] > spec[2] || pointer[1] < spec[1] || pointer[1] > spec[3] {
+    if pointer[0] < spec[0]
+        || pointer[0] > spec[2]
+        || pointer[1] < spec[1]
+        || pointer[1] > spec[3]
+    {
         return;
     }
     if pointer[0] < data_start {
@@ -72,10 +75,12 @@ pub(crate) fn draw_cursor(
 
     // Crosshair
     let gray = [200.0 / 255., 200.0 / 255., 200.0 / 255., 70.0 / 255.];
-    draw.add_line([pointer[0], spec[1]], [pointer[0], spec[3]], gray).build();
-    draw.add_line([spec[0], pointer[1]], [spec[2], pointer[1]], gray).build();
+    draw.add_line([pointer[0], spec[1]], [pointer[0], spec[3]], gray)
+        .build();
+    draw.add_line([spec[0], pointer[1]], [spec[2], pointer[1]], gray)
+        .build();
 
-    // Tooltip
+    // Tooltip — use calc_text_size for accurate sizing
     let (note, octave, _) = freq_to_note(frequency);
     let formatted = if frequency >= 1000. {
         format!("{:.1}kHz", frequency / 1000.)
@@ -84,10 +89,9 @@ pub(crate) fn draw_cursor(
     };
     let info = format!("{note}{octave} ({formatted})\n{db:.1} dBFS\n-{seconds:.1}s");
 
-    // Measure text size (approximately — ~7px/char wide, ~15px/line tall)
-    let lines: Vec<&str> = info.lines().collect();
-    let text_w = lines.iter().map(|l| l.len()).max().unwrap_or(0) as f32 * 7.0 + 10.0;
-    let text_h = lines.len() as f32 * 15.0 + 10.0;
+    let text_sz = ui.calc_text_size(&info);
+    let text_w = text_sz[0] + 10.0;
+    let text_h = text_sz[1] + 10.0;
 
     let mut pos = [pointer[0] + 14., pointer[1] - text_h - 6.];
     pos[0] = pos[0].clamp(canvas[0] + 2., canvas[2] - text_w - 2.);
@@ -106,7 +110,7 @@ pub(crate) fn draw_cursor(
         [200.0 / 255., 200.0 / 255., 200.0 / 255., 100.0 / 255.],
     )
     .build();
-    for (i, line) in lines.iter().enumerate() {
+    for (i, line) in info.lines().enumerate() {
         draw.add_text(
             [pos[0] + 5., pos[1] + 5. + i as f32 * 15.],
             [1.0, 1.0, 1.0, 1.0],
@@ -117,13 +121,14 @@ pub(crate) fn draw_cursor(
 
 pub(crate) fn draw_waveform_area(
     app: &mut VoiceHarmApp,
+    ui: &Ui,
     draw: &DrawListMut,
     canvas: [f32; 4],
     plot: [f32; 4],
     f0: Option<f32>,
 ) {
     let rect = [
-        canvas[0] + 4.,
+        canvas[0] + 54., // left room for dBFS scale
         plot[3] + 24.,
         canvas[2] - 4.,
         canvas[3] - 20.,
@@ -133,12 +138,32 @@ pub(crate) fn draw_waveform_area(
         .extend(app.waveform_samples.iter().copied());
     draw_waveform(draw, rect, &app.waveform_render, &mut app.waveform_points);
 
+    // "INPUT LEVEL" label
     draw.add_text(
         [rect[0] + 4., rect[1] + 3.],
         [128.0 / 255., 177.0 / 255., 181.0 / 255., 1.0],
         "INPUT LEVEL",
     );
 
+    // dBFS scale on left edge
+    let mid = (rect[1] + rect[3]) * 0.5;
+    for &db in &[0.0, -6.0, -12.0, -24.0, -48.0] {
+        let y = mid - (db / 48.0) * (rect[3] - rect[1]) * 0.42;
+        let label = format!("{db:.0}");
+        draw.add_text(
+            [canvas[0] + 4., y - 7.],
+            [102.0 / 255., 130.0 / 255., 146.0 / 255., 1.0],
+            &label,
+        );
+        draw.add_line(
+            [rect[0] - 4., y],
+            [rect[0], y],
+            [53.0 / 255., 75.0 / 255., 91.0 / 255., 1.0],
+        )
+        .build();
+    }
+
+    // Bottom readout bar
     let readout = f0.map_or_else(
         || "--    listening…".into(),
         |frequency| {
@@ -158,9 +183,11 @@ pub(crate) fn draw_waveform_area(
         [181.0 / 255., 225.0 / 255., 220.0 / 255., 1.0],
         &readout,
     );
+
     let tag = "Voice Harmonics Analyzer";
+    let tag_w = ui.calc_text_size(tag)[0];
     draw.add_text(
-        [canvas[2] - 8. - tag.len() as f32 * 7., canvas[3] - 15.],
+        [canvas[2] - 8. - tag_w, canvas[3] - 15.],
         [109.0 / 255., 137.0 / 255., 151.0 / 255., 1.0],
         tag,
     );
